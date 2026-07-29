@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: #020617; color: white; overflow-x: hidden; }
+canvas { display: block; }
+
+@keyframes fadeInGlitch {
+  0% { opacity: 0; transform: translateY(18px); filter: blur(8px); }
+  45% { opacity: 1; transform: translateY(-2px) skewX(-2deg); filter: blur(0); }
+  65% { transform: translateY(0) skewX(2deg); }
+  100% { opacity: 1; transform: none; }
+}
+
+.fade-in { animation: fadeInGlitch .75s cubic-bezier(.2,.8,.2,1) forwards; }
+.fade-in-subtitle { animation: fadeInGlitch .9s cubic-bezier(.2,.8,.2,1) forwards; }
+
+.explore-btn {
+  position: absolute; z-index: 70; left: 50%; bottom: 2rem; transform: translateX(-50%);
+  display: flex; align-items: center; gap: .75rem; border: 1px solid rgba(255,255,255,.22);
+  border-radius: 9999px; padding: .7rem 1rem; background: rgba(2,6,23,.5); color: white;
+  backdrop-filter: blur(12px); opacity: 0; animation: fadeInGlitch .9s 2.2s forwards;
+}
+.explore-arrow { display: grid; place-items: center; }
+.arrow-svg { animation: bob 1.5s ease-in-out infinite; }
+@keyframes bob { 0%,100% { transform: translateY(-2px); } 50% { transform: translateY(3px); } }
