@@ -2,10 +2,14 @@
   "name": "rag-project",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "web"
+  ],
   "scripts": {
-    "dev": "npm run dev --prefix web",
-    "build": "npm run build --prefix web",
-    "start": "npm run start --prefix web"
+    "dev": "npm run dev --workspace=rag-project-web",
+    "build": "npm run build --workspace=rag-project-web",
+    "start": "npm run start --workspace=rag-project-web",
+    "lint": "npm run lint --workspace=rag-project-web"
   },
   "dependencies": {
     "next": "14.2.35",
@@ -13,6 +17,6 @@
     "react-dom": "^18.3.1"
   },
   "engines": {
-    "node": "24.x"
+    "node": "22.x"
   }
 }
