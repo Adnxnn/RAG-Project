@@ -1,0 +1,12 @@
+# Python backend and local tooling are deployed separately from the Next.js frontend.
+app/
+ui/
+pyproject.toml
+uv.lock
+Dockerfile
+docker-compose.yml
+tests/
+data/
+*.zip
+__pycache__/
+.venv/
