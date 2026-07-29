@@ -1,6 +1,6 @@
 [project]
 name = "corporate-multimodal-rag"
-version = "0.1.0"
+version = "1.0.0"
 description = "Multi-agent multimodal corrective RAG with hybrid retrieval"
 requires-python = ">=3.11"
 dependencies = [
@@ -27,7 +27,8 @@ dependencies = [
   "streamlit>=1.39",
   "ragas>=0.2",
   "opentelemetry-api>=1.27",
-  "arize-phoenix-otel>=0.6"
+  "arize-phoenix-otel>=0.6",
+  "supabase>=2.10"
 ]
 
 [project.optional-dependencies]
