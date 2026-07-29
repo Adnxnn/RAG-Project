@@ -16,7 +16,7 @@ const DEPTHMAP = 'https://i.postimg.cc/2SHKQh2q/raw-4.webp';
 
 extend(THREE as any);
 
-function PostProcessing({ strength = 1, threshold = 1 }: { strength?: number; threshold?: number }) {
+function PostProcessing({ strength = 0.85, threshold = 0.9 }: { strength?: number; threshold?: number }) {
   const { gl, scene, camera } = useThree();
   const progressRef = useRef<any>({ value: 0 });
 
@@ -24,18 +24,18 @@ function PostProcessing({ strength = 1, threshold = 1 }: { strength?: number; th
     const post = new THREE.PostProcessing(gl as any);
     const scenePass = pass(scene, camera);
     const sceneColor = scenePass.getTextureNode('output');
-    const bloomPass = bloom(sceneColor, strength, 0.5, threshold);
+    const bloomPass = bloom(sceneColor, strength, 0.45, threshold);
     const scanProgress = uniform(0);
     progressRef.current = scanProgress;
-    const scanLine = smoothstep(0, float(0.05), abs(uv().y.sub(float(scanProgress.value))));
-    const redOverlay = vec3(1, 0, 0).mul(oneMinus(scanLine)).mul(0.4);
-    const withScan = mix(sceneColor, add(sceneColor, redOverlay), smoothstep(0.9, 1, oneMinus(scanLine)));
+    const scanLine = smoothstep(0, float(0.045), abs(uv().y.sub(float(scanProgress.value))));
+    const cyanOverlay = vec3(0.08, 0.82, 1).mul(oneMinus(scanLine)).mul(0.32);
+    const withScan = mix(sceneColor, add(sceneColor, cyanOverlay), smoothstep(0.9, 1, oneMinus(scanLine)));
     post.outputNode = withScan.add(bloomPass);
     return post;
   }, [camera, gl, scene, strength, threshold]);
 
   useFrame(({ clock }) => {
-    progressRef.current.value = Math.sin(clock.getElapsedTime() * 0.5) * 0.5 + 0.5;
+    progressRef.current.value = Math.sin(clock.getElapsedTime() * 0.42) * 0.5 + 0.5;
     renderer.renderAsync();
   }, 1);
 
@@ -53,14 +53,14 @@ function Scene() {
     const pointerUniform = uniform(new THREE.Vector2(0));
     const progressUniform = uniform(0);
     const depthTexture = texture(depthMap);
-    const displacedTexture = texture(rawMap, uv().add(depthTexture.r.mul(pointerUniform).mul(0.01)));
+    const displacedTexture = texture(rawMap, uv().add(depthTexture.r.mul(pointerUniform).mul(0.008)));
     const imageUv = vec2(uv().x, uv().y);
     const tiling = vec2(120);
     const tiledUv = mod(imageUv.mul(tiling), 2).sub(1);
     const brightness = mx_cell_noise_float(imageUv.mul(tiling).div(2));
     const dot = smoothstep(0.5, 0.49, float(tiledUv.length())).mul(brightness);
     const flow = oneMinus(smoothstep(0, 0.02, abs(depthTexture.sub(progressUniform))));
-    const mask = dot.mul(flow).mul(vec3(10, 0, 0));
+    const mask = dot.mul(flow).mul(vec3(0.2, 5.2, 8.5));
     const material = new THREE.MeshBasicNodeMaterial({
       colorNode: blendScreen(displacedTexture, mask),
       transparent: true,
@@ -72,67 +72,77 @@ function Scene() {
   const [w, h] = useAspect(300, 300);
 
   useFrame(({ clock, pointer }) => {
-    progressUniform.value = Math.sin(clock.getElapsedTime() * 0.5) * 0.5 + 0.5;
+    progressUniform.value = Math.sin(clock.getElapsedTime() * 0.42) * 0.5 + 0.5;
     pointerUniform.value = pointer;
     const mat = meshRef.current?.material as any;
-    if (mat?.opacity !== undefined) mat.opacity = THREE.MathUtils.lerp(mat.opacity, visible ? 1 : 0, 0.07);
+    if (mat?.opacity !== undefined) mat.opacity = THREE.MathUtils.lerp(mat.opacity, visible ? 0.78 : 0, 0.06);
   });
 
   return (
-    <mesh ref={meshRef} scale={[w * 0.4, h * 0.4, 1]} material={material}>
+    <mesh ref={meshRef} scale={[w * 0.38, h * 0.38, 1]} material={material}>
       <planeGeometry />
     </mesh>
   );
 }
 
 export default function HeroFuturistic() {
-  const titleWords = 'Knowledge Without Limits'.split(' ');
-  const subtitle = 'Upload documents, connect links, and ask your enterprise knowledge anything.';
-  const [visibleWords, setVisibleWords] = useState(0);
-  const [subtitleVisible, setSubtitleVisible] = useState(false);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (visibleWords < titleWords.length) {
-      const timeout = window.setTimeout(() => setVisibleWords((value) => value + 1), 520);
-      return () => window.clearTimeout(timeout);
-    }
-    const timeout = window.setTimeout(() => setSubtitleVisible(true), 500);
+    const timeout = window.setTimeout(() => setReady(true), 180);
     return () => window.clearTimeout(timeout);
-  }, [titleWords.length, visibleWords]);
+  }, []);
 
   const scrollToWorkspace = () => document.getElementById('workspace')?.scrollIntoView({ behavior: 'smooth' });
 
   return (
-    <section className="relative h-svh min-h-[640px] overflow-hidden bg-slate-950">
-      <div className="pointer-events-none absolute inset-0 z-[60] flex flex-col items-center justify-center px-6 text-center uppercase">
-        <div className="flex flex-wrap justify-center gap-x-3 overflow-hidden text-4xl font-extrabold tracking-tight text-white md:text-6xl xl:text-7xl">
-          {titleWords.map((word, index) => (
-            <span key={word} className={index < visibleWords ? 'fade-in' : ''} style={{ opacity: index < visibleWords ? undefined : 0 }}>
-              {word}
-            </span>
-          ))}
+    <section className="hero-shell">
+      <div className="hero-ambient" aria-hidden="true" />
+      <header className="hero-nav">
+        <a href="#" className="brand-lockup" aria-label="RAG Assistant home">
+          <span className="brand-orb" />
+          <span>
+            <strong>RAG Assistant</strong>
+            <small>Knowledge intelligence</small>
+          </span>
+        </a>
+        <button type="button" className="nav-cta" onClick={scrollToWorkspace}>Open workspace</button>
+      </header>
+
+      <div className="hero-grid">
+        <div className={`hero-copy ${ready ? 'hero-ready' : ''}`}>
+          <span className="eyebrow"><i /> Enterprise intelligence, grounded in your data</span>
+          <h1>One place to understand everything.</h1>
+          <p>
+            Connect documents, websites, spreadsheets, images, and databases. Ask naturally and receive precise answers with traceable sources.
+          </p>
+          <div className="hero-actions">
+            <button type="button" className="primary-action" onClick={scrollToWorkspace}>Start exploring <span>→</span></button>
+            <span className="trust-note"><b>Private by design</b> · Source-backed answers</span>
+          </div>
         </div>
-        <p className={`mt-4 max-w-3xl text-xs font-bold normal-case tracking-wide text-white/80 md:text-xl ${subtitleVisible ? 'fade-in-subtitle' : ''}`} style={{ opacity: subtitleVisible ? undefined : 0 }}>
-          {subtitle}
-        </p>
+
+        <div className="hero-visual" aria-hidden="true">
+          <div className="visual-frame" />
+          <Canvas
+            flat
+            gl={async (props) => {
+              const renderer = new THREE.WebGPURenderer(props as any);
+              await renderer.init();
+              return renderer as any;
+            }}
+          >
+            <PostProcessing />
+            <Scene />
+          </Canvas>
+          <div className="visual-status"><span /> Neural index online</div>
+        </div>
       </div>
 
-      <button type="button" className="explore-btn" onClick={scrollToWorkspace}>
-        Enter workspace
-        <span className="explore-arrow" aria-hidden="true">↓</span>
+      <button type="button" className="scroll-cue" onClick={scrollToWorkspace} aria-label="Scroll to workspace">
+        <span>Explore workspace</span>
+        <b>↓</b>
       </button>
-
-      <Canvas
-        flat
-        gl={async (props) => {
-          const renderer = new THREE.WebGPURenderer(props as any);
-          await renderer.init();
-          return renderer as any;
-        }}
-      >
-        <PostProcessing />
-        <Scene />
-      </Canvas>
     </section>
   );
 }
