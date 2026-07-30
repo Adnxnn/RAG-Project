@@ -7,8 +7,8 @@ import { getSupabaseBrowserClient } from '@/lib/supabase';
 type Panel = 'chat' | 'sources' | 'graph' | 'history' | 'settings';
 type Message = { id: string; role: 'user' | 'assistant'; content: string };
 type DocumentRow = { id: string; name: string; status: string; mime_type: string | null; created_at: string };
-
 type WorkspaceRow = { id: string; name: string };
+type AuthFeedback = { kind: 'success' | 'error' | 'info'; title: string; message: string } | null;
 
 const suggestions = [
   'Summarise the most important findings in my sources',
@@ -30,6 +30,9 @@ export default function HomePage() {
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [authFeedback, setAuthFeedback] = useState<AuthFeedback>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
 
@@ -51,6 +54,21 @@ export default function HomePage() {
     if (!session || !supabase) return;
     void initialiseWorkspace();
   }, [session, supabase]);
+
+  function openAuth(mode: 'signin' | 'signup' = 'signin') {
+    setAuthMode(mode);
+    setAuthFeedback(null);
+    setPassword('');
+    setConfirmPassword('');
+    setAuthOpen(true);
+  }
+
+  function switchAuthMode() {
+    setAuthMode((current) => (current === 'signin' ? 'signup' : 'signin'));
+    setAuthFeedback(null);
+    setPassword('');
+    setConfirmPassword('');
+  }
 
   async function initialiseWorkspace() {
     if (!supabase || !session) return;
@@ -104,15 +122,94 @@ export default function HomePage() {
 
   async function submitAuth(event: FormEvent) {
     event.preventDefault();
-    if (!supabase) return setNotice('Supabase environment variables are missing.');
+    setAuthFeedback(null);
+
+    if (!supabase) {
+      setAuthFeedback({ kind: 'error', title: 'Connection unavailable', message: 'Supabase environment variables are missing.' });
+      return;
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      setAuthFeedback({ kind: 'error', title: 'Email required', message: 'Enter the email address you want to use.' });
+      return;
+    }
+    if (password.length < 8) {
+      setAuthFeedback({ kind: 'error', title: 'Password is too short', message: 'Use at least 8 characters for your password.' });
+      return;
+    }
+    if (authMode === 'signup' && password !== confirmPassword) {
+      setAuthFeedback({ kind: 'error', title: 'Passwords do not match', message: 'Re-enter the same password in both fields.' });
+      return;
+    }
+
     setBusy(true);
+    setAuthFeedback({
+      kind: 'info',
+      title: authMode === 'signin' ? 'Signing you in…' : 'Creating your account…',
+      message: 'Please wait while we securely process your request.',
+    });
+
     const result = authMode === 'signup'
-      ? await supabase.auth.signUp({ email, password })
-      : await supabase.auth.signInWithPassword({ email, password });
+      ? await supabase.auth.signUp({
+          email: cleanEmail,
+          password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/auth/confirmed`,
+          },
+        })
+      : await supabase.auth.signInWithPassword({ email: cleanEmail, password });
+
     setBusy(false);
-    if (result.error) return setNotice(result.error.message);
-    setAuthOpen(false);
-    setNotice(authMode === 'signup' && !result.data.session ? 'Check your email to confirm your account.' : 'Signed in successfully');
+
+    if (result.error) {
+      setAuthFeedback({ kind: 'error', title: authMode === 'signin' ? 'Unable to sign in' : 'Unable to create account', message: result.error.message });
+      return;
+    }
+
+    if (authMode === 'signup' && !result.data.session) {
+      setAuthFeedback({
+        kind: 'success',
+        title: 'Check your email',
+        message: `We sent a confirmation link to ${cleanEmail}. Open it to activate your account, then return here to sign in.`,
+      });
+      setPassword('');
+      setConfirmPassword('');
+      return;
+    }
+
+    setAuthFeedback({ kind: 'success', title: 'Signed in successfully', message: 'Your secure workspace is being prepared.' });
+    setNotice('Signed in successfully');
+    window.setTimeout(() => setAuthOpen(false), 700);
+  }
+
+  async function resendConfirmation() {
+    if (!supabase || !email.trim()) return;
+    setBusy(true);
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email.trim().toLowerCase(),
+      options: { emailRedirectTo: `${window.location.origin}/auth/confirmed` },
+    });
+    setBusy(false);
+    setAuthFeedback(error
+      ? { kind: 'error', title: 'Email not sent', message: error.message }
+      : { kind: 'success', title: 'Confirmation email resent', message: `A new confirmation link was sent to ${email.trim().toLowerCase()}.` });
+  }
+
+  async function sendPasswordReset() {
+    if (!supabase || !email.trim()) {
+      setAuthFeedback({ kind: 'error', title: 'Enter your email', message: 'Enter your email address first, then choose Forgot password.' });
+      return;
+    }
+    setBusy(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+      redirectTo: `${window.location.origin}/auth/confirmed?mode=recovery`,
+    });
+    setBusy(false);
+    setAuthFeedback(error
+      ? { kind: 'error', title: 'Reset email not sent', message: error.message }
+      : { kind: 'success', title: 'Check your email', message: 'We sent you a secure password-reset link.' });
   }
 
   async function signOut() {
@@ -126,7 +223,7 @@ export default function HomePage() {
     event.target.value = '';
     if (!file) return;
     if (!session || !workspace || !supabase) {
-      setAuthOpen(true);
+      openAuth('signin');
       return;
     }
 
@@ -165,7 +262,7 @@ export default function HomePage() {
     const text = prompt.trim();
     if (!text) return;
     if (!session || !workspace || !supabase) {
-      setAuthOpen(true);
+      openAuth('signin');
       return;
     }
 
@@ -243,7 +340,7 @@ export default function HomePage() {
           <div><span className="app-kicker">{workspace?.name ?? 'Private workspace'}</span><h1>{panel === 'chat' ? 'Ask your knowledge' : panel === 'sources' ? 'Connected sources' : panel === 'graph' ? 'Knowledge graph' : panel === 'history' ? 'Conversation history' : 'Workspace settings'}</h1></div>
           <div className="topbar-actions">
             {notice && <span className="inline-notice">{notice}</span>}
-            {session ? <button className="quiet-button" type="button" onClick={signOut}>Sign out</button> : <button className="primary-button" type="button" onClick={() => setAuthOpen(true)}>Sign in</button>}
+            {session ? <button className="quiet-button" type="button" onClick={signOut}>Sign out</button> : <button className="primary-button" type="button" onClick={() => openAuth('signin')}>Sign in</button>}
             <button className="primary-button" type="button" onClick={newChat}>New chat</button>
           </div>
         </header>
@@ -284,16 +381,48 @@ export default function HomePage() {
       </section>
 
       {authOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setAuthOpen(false)}>
-          <form className="auth-modal" onSubmit={submitAuth} onMouseDown={(event) => event.stopPropagation()}>
-            <button className="modal-close" type="button" onClick={() => setAuthOpen(false)}>×</button>
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => !busy && setAuthOpen(false)}>
+          <form className="auth-modal auth-modal-enhanced" onSubmit={submitAuth} onMouseDown={(event) => event.stopPropagation()}>
+            <button className="modal-close" type="button" aria-label="Close" disabled={busy} onClick={() => setAuthOpen(false)}>×</button>
+            <div className="auth-brand"><span className="brand-orb" /><div><strong>RAG Assistant</strong><small>Secure knowledge workspace</small></div></div>
             <span className="section-kicker">Secure access</span>
-            <h2>{authMode === 'signin' ? 'Welcome back' : 'Create your workspace'}</h2>
-            <p>Use your email and password. Your session is managed securely by Supabase.</p>
-            <label>Email<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-            <label>Password<input type="password" required minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-            <button className="primary-button full" type="submit" disabled={busy}>{busy ? 'Please wait…' : authMode === 'signin' ? 'Sign in' : 'Create account'}</button>
-            <button className="text-button" type="button" onClick={() => setAuthMode(authMode === 'signin' ? 'signup' : 'signin')}>{authMode === 'signin' ? 'Create a new account' : 'Already have an account'}</button>
+            <h2>{authMode === 'signin' ? 'Welcome back' : 'Create your account'}</h2>
+            <p>{authMode === 'signin' ? 'Sign in to continue to your private workspace.' : 'Create an account to save conversations, upload sources, and build your knowledge workspace.'}</p>
+
+            {authFeedback && (
+              <div className={`auth-feedback ${authFeedback.kind}`} role="status">
+                <span>{authFeedback.kind === 'success' ? '✓' : authFeedback.kind === 'error' ? '!' : '↻'}</span>
+                <div><strong>{authFeedback.title}</strong><p>{authFeedback.message}</p></div>
+              </div>
+            )}
+
+            <label>Email address
+              <input type="email" required autoComplete="email" placeholder="you@example.com" value={email} onChange={(event) => { setEmail(event.target.value); setAuthFeedback(null); }} />
+            </label>
+            <label>Password
+              <div className="password-field">
+                <input type={showPassword ? 'text' : 'password'} required minLength={8} autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'} placeholder="At least 8 characters" value={password} onChange={(event) => { setPassword(event.target.value); setAuthFeedback(null); }} />
+                <button type="button" onClick={() => setShowPassword((value) => !value)}>{showPassword ? 'Hide' : 'Show'}</button>
+              </div>
+            </label>
+            {authMode === 'signup' && (
+              <label>Confirm password
+                <input type={showPassword ? 'text' : 'password'} required minLength={8} autoComplete="new-password" placeholder="Enter the same password again" value={confirmPassword} onChange={(event) => { setConfirmPassword(event.target.value); setAuthFeedback(null); }} />
+              </label>
+            )}
+
+            {authMode === 'signin' && <button className="forgot-button" type="button" disabled={busy} onClick={() => void sendPasswordReset()}>Forgot password?</button>}
+            <button className="primary-button full auth-submit" type="submit" disabled={busy}>{busy ? 'Please wait…' : authMode === 'signin' ? 'Sign in securely' : 'Create account'}</button>
+
+            {authMode === 'signup' && authFeedback?.kind === 'success' && (
+              <button className="quiet-button full" type="button" disabled={busy} onClick={() => void resendConfirmation()}>Resend confirmation email</button>
+            )}
+
+            <div className="auth-switch">
+              <span>{authMode === 'signin' ? 'New to RAG Assistant?' : 'Already have an account?'}</span>
+              <button className="text-button" type="button" disabled={busy} onClick={switchAuthMode}>{authMode === 'signin' ? 'Create an account' : 'Sign in instead'}</button>
+            </div>
+            <small className="auth-legal">By continuing, you agree to use this workspace responsibly. Authentication is securely managed by Supabase.</small>
           </form>
         </div>
       )}
