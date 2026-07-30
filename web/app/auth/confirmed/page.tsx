@@ -1,12 +1,26 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
 
 type Status = 'loading' | 'success' | 'error' | 'recovery';
 
-export default function AuthConfirmedPage() {
+function ConfirmationLoading() {
+  return (
+    <main className="confirmation-page">
+      <section className="confirmation-card">
+        <div className="confirmation-icon"><span className="confirmation-spinner" /></div>
+        <span className="section-kicker">RAG Assistant secure access</span>
+        <h1>Confirming your account</h1>
+        <p>Verifying your secure confirmation link…</p>
+        <div className="confirmation-detail">Private by design · Secure authentication powered by Supabase</div>
+      </section>
+    </main>
+  );
+}
+
+function AuthConfirmationContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
@@ -18,6 +32,8 @@ export default function AuthConfirmedPage() {
 
   useEffect(() => {
     void completeConfirmation();
+    // searchParams is stable for the lifetime of this callback page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function completeConfirmation() {
@@ -125,5 +141,13 @@ export default function AuthConfirmedPage() {
         <div className="confirmation-detail">Private by design · Secure authentication powered by Supabase</div>
       </section>
     </main>
+  );
+}
+
+export default function AuthConfirmedPage() {
+  return (
+    <Suspense fallback={<ConfirmationLoading />}>
+      <AuthConfirmationContent />
+    </Suspense>
   );
 }
