@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.agents.graph import agent_graph
@@ -23,7 +23,7 @@ from app.retrieval.hybrid import retriever
 
 app = FastAPI(
     title="Corporate Multimodal RAG",
-    version="1.0.0",
+    version="1.1.0",
     docs_url="/docs" if settings.environment != "production" else None,
     redoc_url="/redoc" if settings.environment != "production" else None,
 )
@@ -50,7 +50,7 @@ def health() -> HealthResponse:
         status="ok",
         database="connected" if database.enabled else "not_configured",
         indexed_blocks=len(retriever.blocks),
-        version="1.0.0",
+        version="1.1.0",
     )
 
 
@@ -66,8 +66,9 @@ def create_conversation(req: ConversationCreate):
 @app.post("/ingest/files", dependencies=[Depends(require_api_key)])
 async def ingest_files(
     files: list[UploadFile] = File(...),
-    workspace_id: str | None = None,
-    collection_id: str | None = None,
+    conversation_id: str = Form(...),
+    workspace_id: str | None = Form(default=None),
+    collection_id: str | None = Form(default=None),
 ):
     total = 0
     details = []
@@ -79,10 +80,17 @@ async def ingest_files(
             raise HTTPException(413, f"{upload.filename} exceeds {settings.max_upload_mb} MB")
 
         safe_name = Path(upload.filename or "upload").name
-        path = UPLOADS / f"{uuid4()}-{safe_name}"
+        path = UPLOADS / f"{conversation_id}-{uuid4()}-{safe_name}"
         path.write_bytes(content)
         blocks = load_file(path)
-        retriever.add(blocks)
+        for block in blocks:
+            block.metadata.update(
+                {
+                    "conversation_id": conversation_id,
+                    "file_name": safe_name,
+                }
+            )
+        retriever.add(blocks, conversation_id=conversation_id)
         total += len(blocks)
 
         document_id = None
@@ -91,6 +99,7 @@ async def ingest_files(
             document = database.create_document(
                 {
                     "workspace_id": workspace_id,
+                    "conversation_id": conversation_id,
                     "collection_id": collection_id,
                     "name": safe_name,
                     "source_type": "file",
@@ -107,6 +116,7 @@ async def ingest_files(
                     {
                         "document_id": document_id,
                         "workspace_id": workspace_id,
+                        "conversation_id": conversation_id,
                         "collection_id": collection_id,
                         "chunk_index": index,
                         "kind": block.kind,
@@ -118,33 +128,49 @@ async def ingest_files(
             database.insert_chunks(rows)
             database.update_document(document_id, {"status": "ready"})
 
-        details.append({"file": safe_name, "blocks": len(blocks), "document_id": document_id})
+        details.append(
+            {"file": safe_name, "blocks": len(blocks), "document_id": document_id}
+        )
 
-    return {"ingested_blocks": total, "files": details}
+    return {
+        "conversation_id": conversation_id,
+        "ingested_blocks": total,
+        "files": details,
+    }
 
 
 @app.post("/ingest/url", dependencies=[Depends(require_api_key)])
 async def ingest_url(req: UrlIngestRequest):
     try:
         blocks = await load_url(str(req.url))
-        retriever.add(blocks)
-        return {"url": str(req.url), "blocks": len(blocks)}
+        for block in blocks:
+            block.metadata["conversation_id"] = req.conversation_id
+        retriever.add(blocks, conversation_id=req.conversation_id)
+        return {
+            "conversation_id": req.conversation_id,
+            "url": str(req.url),
+            "blocks": len(blocks),
+        }
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@app.delete("/conversations/{conversation_id}/index", dependencies=[Depends(require_api_key)])
+def clear_conversation_index(conversation_id: str):
+    retriever.clear(conversation_id)
+    return {"conversation_id": conversation_id, "cleared": True}
 
 
 @app.post("/chat", response_model=AnswerResponse, dependencies=[Depends(require_api_key)])
 async def chat(req: QueryRequest) -> AnswerResponse:
     for url in req.urls:
-        retriever.add(await load_url(str(url)))
+        blocks = await load_url(str(url))
+        for block in blocks:
+            block.metadata["conversation_id"] = req.conversation_id
+        retriever.add(blocks, conversation_id=req.conversation_id)
 
     conversation_id = req.conversation_id
     if database.enabled and req.workspace_id:
-        if not conversation_id:
-            conversation = database.create_conversation(
-                {"workspace_id": req.workspace_id, "title": req.question[:80]}
-            )
-            conversation_id = conversation["id"]
         database.add_message(
             {
                 "conversation_id": conversation_id,
@@ -154,7 +180,9 @@ async def chat(req: QueryRequest) -> AnswerResponse:
             }
         )
 
-    result = agent_graph.invoke({"question": req.question})
+    result = agent_graph.invoke(
+        {"question": req.question, "conversation_id": conversation_id}
+    )
     response = AnswerResponse(
         answer=result["answer"],
         citations=result["citations"],
@@ -163,7 +191,7 @@ async def chat(req: QueryRequest) -> AnswerResponse:
         conversation_id=conversation_id,
     )
 
-    if database.enabled and req.workspace_id and conversation_id:
+    if database.enabled and req.workspace_id:
         database.add_message(
             {
                 "conversation_id": conversation_id,
