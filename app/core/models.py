@@ -1,4 +1,5 @@
 from typing import Any, Literal
+
 from pydantic import BaseModel, Field, HttpUrl
 
 
@@ -23,7 +24,7 @@ class QueryRequest(BaseModel):
     question: str = Field(min_length=1, max_length=20_000)
     workspace_id: str | None = None
     collection_id: str | None = None
-    conversation_id: str | None = None
+    conversation_id: str
     urls: list[HttpUrl] = Field(default_factory=list)
 
 
@@ -39,6 +40,7 @@ class UrlIngestRequest(BaseModel):
     url: HttpUrl
     workspace_id: str | None = None
     collection_id: str | None = None
+    conversation_id: str
 
 
 class ConversationCreate(BaseModel):
